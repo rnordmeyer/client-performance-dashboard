@@ -1,23 +1,84 @@
 import { useEffect, useMemo, useState } from "react"
+import { Icon } from "./components/Icon"
+import {
+  Card,
+  CategoryBars,
+  DeltaPill,
+  KeywordTable,
+  PlanDetail,
+  PlanSummary,
+  StatCard,
+  ViewLink,
+  WorkLog,
+  type Tone,
+} from "./components/Panels"
 import { ScoreRing } from "./components/ScoreRing"
-import { TrendChart } from "./components/TrendChart"
-import { ActionPlan, CategoryBars, KeywordTable, MetricTile, WorkLog } from "./components/Panels"
+import { Sparkline, TrendChart } from "./components/TrendChart"
 import { demoSource, type DataSource } from "./data/source"
 import type { DashboardData } from "./data/types"
-import { delta, monthLabel, num } from "./lib/format"
+import { dayLabel, grade, monthLabel, num, parseDay, shortMonth } from "./lib/format"
 
 type Theme = "light" | "dark"
+type Tab = "all" | "health" | "numbers" | "work" | "plan"
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "health", label: "Health" },
+  { id: "numbers", label: "Numbers" },
+  { id: "work", label: "Work" },
+  { id: "plan", label: "Plan" },
+]
+
+const RAIL: { href: string; label: string; icon: string }[] = [
+  { href: "#overview", label: "Overview", icon: "overview" },
+  { href: "#health", label: "Health", icon: "health" },
+  { href: "#numbers", label: "Traffic", icon: "traffic" },
+  { href: "#search", label: "Search", icon: "search" },
+  { href: "#uptime", label: "Uptime", icon: "uptime" },
+  { href: "#work", label: "Work log", icon: "work" },
+  { href: "#plan", label: "Plan", icon: "plan" },
+]
 
 /** Daily average, so a month in progress compares fairly with a finished one. */
-const perDay = (t: { visits: number; days_reported: number }) => Math.round(t.visits / Math.max(1, t.days_reported))
+const perDay = (t: { visits: number; days_reported: number }) => t.visits / Math.max(1, t.days_reported)
+
+function change(
+  current: number,
+  previous: number | undefined,
+  prevMonth: string | undefined,
+  opts: { unit: "pts" | "pct" | "ms" | "count"; lowerIsBetter?: boolean; perDay?: boolean },
+): { text: string; tone: Tone; direction?: "up" | "down" } {
+  if (previous === undefined || !prevMonth) return { text: "First month", tone: "neutral" }
+  const vs = `vs ${shortMonth(prevMonth)}`
+  let diff = current - previous
+  let label: string
+  if (opts.unit === "pct") {
+    diff = previous ? ((current - previous) / previous) * 100 : 0
+    label = `${Math.abs(diff).toFixed(1)}%${opts.perDay ? " per day" : ""}`
+  } else {
+    diff = Math.round(diff * 10) / 10
+    label = `${num(Math.abs(diff))}${opts.unit === "pts" ? " pts" : opts.unit === "ms" ? " ms" : ""}`
+  }
+  if (Math.abs(diff) < 0.05) return { text: `No change ${vs}`, tone: "neutral" }
+  const up = diff > 0
+  return {
+    text: `${up ? "+" : "−"}${label} ${vs}`,
+    tone: up !== Boolean(opts.lowerIsBetter) ? "good" : "bad",
+    direction: up ? "up" : "down",
+  }
+}
+
+function greeting(d = new Date()) {
+  const h = d.getHours()
+  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"
+}
 
 export default function App({ source = demoSource }: { source?: DataSource }) {
   const [data, setData] = useState<DashboardData | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [monthIndex, setMonthIndex] = useState<number | null>(null)
-  const [theme, setTheme] = useState<Theme>(() =>
-    window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light",
-  )
+  const [month, setMonth] = useState<string | null>(null)
+  const [tab, setTab] = useState<Tab>("all")
+  const [theme, setTheme] = useState<Theme>("dark")
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -34,31 +95,33 @@ export default function App({ source = demoSource }: { source?: DataSource }) {
     if (!data || !site) return null
     const scores = data.scores.filter((s) => s.site_id === site.id)
     const months = scores.map((s) => s.month)
-    const i = monthIndex ?? months.length - 1
-    const month = months[i]
-    const prevMonth = months[i - 1]
-    const pick = <T extends { site_id: string; month: string }>(rows: T[], m?: string) =>
-      rows.find((r) => r.site_id === site.id && r.month === m)
+    const i = month ? Math.max(0, months.indexOf(month)) : months.length - 1
+    const m = months[i]
+    const pm = months[i - 1]
+    const pick = <T extends { site_id: string; month: string }>(rows: T[], when?: string) =>
+      rows.find((r) => r.site_id === site.id && r.month === when)
+    const rank = { high: 0, medium: 1, low: 2 }
     return {
       months,
-      i,
-      month,
+      month: m,
+      prevMonth: pm,
       score: scores[i],
       prevScore: scores[i - 1],
-      traffic: pick(data.traffic, month),
-      prevTraffic: pick(data.traffic, prevMonth),
-      uptime: pick(data.uptime, month),
-      prevUptime: pick(data.uptime, prevMonth),
-      ranks: data.ranks.filter((r) => r.site_id === site.id && r.month === month),
-      prevRanks: data.ranks.filter((r) => r.site_id === site.id && r.month === prevMonth),
-      plan: data.recommendations.filter((r) => r.site_id === site.id && r.month === months[months.length - 1]),
-      work: data.work.filter((w) => w.done_on.startsWith(month.slice(0, 7))).sort((a, b) => b.done_on.localeCompare(a.done_on)),
-      scoreTrend: scores.slice(0, i + 1).map((s) => ({ month: s.month, value: s.overall })),
-      trafficTrend: data.traffic
-        .filter((t) => t.site_id === site.id && t.month <= month)
-        .map((t) => ({ month: t.month, value: perDay(t) })),
+      traffic: pick(data.traffic, m),
+      prevTraffic: pick(data.traffic, pm),
+      uptime: pick(data.uptime, m),
+      prevUptime: pick(data.uptime, pm),
+      ranks: data.ranks.filter((r) => r.site_id === site.id && r.month === m),
+      prevRanks: data.ranks.filter((r) => r.site_id === site.id && r.month === pm),
+      plan: data.recommendations.filter((r) => r.site_id === site.id).sort((a, b) => rank[a.severity] - rank[b.severity]),
+      work: data.work.filter((w) => w.done_on.startsWith(m.slice(0, 7))).sort((a, b) => b.done_on.localeCompare(a.done_on)),
+      scoreTrend: scores.slice(Math.max(0, i - 11), i + 1).map((s) => ({ month: s.month, value: s.overall })),
+      visitsPerDay: data.traffic
+        .filter((t) => t.site_id === site.id && t.month <= m)
+        .slice(-12)
+        .map((t) => Math.round(perDay(t))),
     }
-  }, [data, site, monthIndex])
+  }, [data, site, month])
 
   if (error) {
     return (
@@ -76,137 +139,261 @@ export default function App({ source = demoSource }: { source?: DataSource }) {
     )
   }
 
-  const { score, prevScore, traffic, prevTraffic, uptime, prevUptime } = view
-  const isLatest = view.i === view.months.length - 1
+  const { score, prevScore, traffic, prevTraffic, uptime, prevUptime, prevMonth } = view
+  const show = (...tabs: Tab[]) => tab === "all" || tabs.includes(tab)
+  const initials = client.name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+  const first = parseDay(view.month)
+  const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate()
+  const partial = traffic && traffic.days_reported < daysInMonth
+  const checkedOn = `${first.getFullYear()}-${String(first.getMonth() + 1).padStart(2, "0")}-02`
 
   return (
-    <div className="app">
-      <a className="skip" href="#content">
-        Skip to the report
+    <div className="shell">
+      <a className="skip" href="#main">
+        Skip to main content
       </a>
 
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true" />
-          <div>
-            <p className="brand-client">{client.name}</p>
-            <p className="brand-site">{site.domain}</p>
-          </div>
-        </div>
-        <div className="topbar-actions">
-          {source.mode === "demo" && <span className="badge">Demo data</span>}
-          <button
-            className="btn-ghost"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-          >
-            {theme === "dark" ? "Light mode" : "Dark mode"}
+      <aside className="rail" aria-label="Quick navigation">
+        <span className="rail-mark" aria-hidden="true" />
+        <div className="rail-group" role="group" aria-label="Appearance">
+          <button className={`rail-btn ${theme === "light" ? "is-on" : ""}`} aria-pressed={theme === "light"} aria-label="Light mode" onClick={() => setTheme("light")}>
+            <Icon name="sun" />
+          </button>
+          <button className={`rail-btn ${theme === "dark" ? "is-on" : ""}`} aria-pressed={theme === "dark"} aria-label="Dark mode" onClick={() => setTheme("dark")}>
+            <Icon name="moon" />
           </button>
         </div>
-      </header>
+        <nav className="rail-group" aria-label="Sections">
+          <ul>
+            {RAIL.map((r, k) => (
+              <li key={r.href}>
+                <a className={`rail-btn ${k === 0 ? "is-active" : ""}`} href={r.href} aria-label={r.label} title={r.label}>
+                  <Icon name={r.icon} />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </aside>
 
-      <main id="content" tabIndex={-1}>
-        <section className="hero" aria-labelledby="hero-title">
-          <div className="hero-copy">
-            <p className="eyebrow">Monthly website report</p>
-            <h1 id="hero-title">{monthLabel(view.month)}</h1>
-            <p className="lede">
-              {prevScore
-                ? score.overall >= prevScore.overall
-                  ? `Your site's health score is ${score.overall}, ${score.overall - prevScore.overall === 0 ? "holding steady" : `up ${score.overall - prevScore.overall} from last month`}.`
-                  : `Your site's health score is ${score.overall}, down ${prevScore.overall - score.overall} from last month. The plan below covers what to fix first.`
-                : `Your site's first health score is ${score.overall}. Next month's report will show the trend.`}
-            </p>
-            <nav className="month-nav" aria-label="Choose a month">
-              <button className="btn-ghost" disabled={view.i === 0} onClick={() => setMonthIndex(view.i - 1)}>
-                Previous month
-              </button>
-              <button className="btn-ghost" disabled={isLatest} onClick={() => setMonthIndex(view.i + 1)}>
-                Next month
-              </button>
-              {!isLatest && (
-                <button className="btn-link" onClick={() => setMonthIndex(null)}>
-                  Back to latest
-                </button>
+      <div className="page">
+        <header className="topbar">
+          <nav className="tabs" aria-label="Overview parts">
+            <span className="tabs-title">
+              <Icon name="overview" size={16} /> Overview
+            </span>
+            <ul>
+              {TABS.map((t) => (
+                <li key={t.id}>
+                  <button className={`tab ${tab === t.id ? "is-on" : ""}`} aria-pressed={tab === t.id} onClick={() => setTab(t.id)}>
+                    {t.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          <div className="account">
+            <span className="avatar" aria-hidden="true">
+              {initials}
+            </span>
+            <span className="account-text">
+              <span className="account-name">{client.name}</span>
+              <span className="account-sub">Example business</span>
+            </span>
+          </div>
+        </header>
+
+        <main id="main" tabIndex={-1}>
+          <div className="notice" role="status">
+            <span className="notice-icon" aria-hidden="true">
+              <Icon name="overview" size={16} />
+            </span>
+            <div className="notice-text">
+              <p className="notice-kicker">Good news</p>
+              <p className="notice-title">Your {monthLabel(view.month).split(" ")[0]} report is ready</p>
+              <p className="notice-sub">Here’s how your site did, compared with the month before.</p>
+            </div>
+            <ViewLink href="#health" />
+          </div>
+
+          <section id="overview" className="intro" aria-labelledby="hello">
+            <div>
+              <h1 id="hello">
+                {greeting()},<br />
+                {client.name}
+              </h1>
+              <p className="intro-sub">
+                Here is how an example business is doing in {monthLabel(view.month)}. The numbers are invented.
+              </p>
+              <p className="intro-meta">
+                Last checked {dayLabel(checkedOn)}, {first.getFullYear()}
+              </p>
+            </div>
+            <div className="pickers">
+              <label className="picker">
+                <span>Website</span>
+                <select disabled>
+                  <option>{site.domain}</option>
+                </select>
+              </label>
+              <label className="picker">
+                <span className="sr-only">Month</span>
+                <select value={view.month} onChange={(e) => setMonth(e.target.value)}>
+                  {[...view.months].reverse().map((m) => (
+                    <option key={m} value={m}>
+                      {monthLabel(m)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </section>
+
+          {show("health", "numbers") && (
+            <div className="hero-grid">
+              {show("health") && (
+                <section id="health" className="card card-glow" aria-labelledby="health-title">
+                  <div className="card-head">
+                    <h2 id="health-title">Overall health</h2>
+                    <ViewLink href="#health-detail" />
+                  </div>
+                  <div className="health">
+                    <ScoreRing score={score.overall} />
+                    <div>
+                      <p className="health-grade">
+                        Grade <strong>{grade(score.overall)}</strong>
+                      </p>
+                      <DeltaPill {...change(score.overall, prevScore?.overall, prevMonth, { unit: "pts" })} />
+                      <p className="health-note">
+                        One score that combines search basics, speed, accessibility, best practices and security. It does
+                        not include rankings or traffic.
+                      </p>
+                    </div>
+                  </div>
+                </section>
               )}
-            </nav>
-          </div>
-          <ScoreRing score={score.overall} label="Overall health score" />
-        </section>
+              {show("numbers") && traffic && (
+                <section id="numbers" className="card" aria-labelledby="visits-title">
+                  <div className="card-head">
+                    <h2 id="visits-title" className="label-head">
+                      Visits
+                    </h2>
+                    <ViewLink href="#traffic-detail" />
+                  </div>
+                  <p className="big-number">{num(traffic.visits)}</p>
+                  <DeltaPill {...change(perDay(traffic), prevTraffic && perDay(prevTraffic), prevMonth, { unit: "pct", perDay: true })} />
+                  {partial && (
+                    <p className="card-note">
+                      Partial month: traffic data for {traffic.days_reported} of {daysInMonth} days, so the change is a
+                      daily average.
+                    </p>
+                  )}
+                  <div className="spark-row">
+                    <Sparkline values={view.visitsPerDay} />
+                    <span className="card-note">Visits per day, last 12 months</span>
+                  </div>
+                </section>
+              )}
+            </div>
+          )}
 
-        <section className="tiles" aria-label="Key numbers">
-          <MetricTile
-            label="Visits per day"
-            value={traffic ? num(perDay(traffic)) : "No data"}
-            change={traffic ? delta(perDay(traffic), prevTraffic && perDay(prevTraffic)) : { text: "", tone: "neutral" }}
-          />
-          <MetricTile
-            label="Uptime"
-            value={uptime ? `${uptime.uptime_pct}%` : "No data"}
-            change={uptime ? delta(uptime.uptime_pct, prevUptime?.uptime_pct, " pts") : { text: "", tone: "neutral" }}
-          />
-          <MetricTile
-            label="Response time"
-            value={`${num(score.response_ms)} ms`}
-            change={delta(score.response_ms, prevScore?.response_ms, " ms", false)}
-          />
-          <MetricTile
-            label="Open issues"
-            value={num(score.issues_count)}
-            change={delta(score.issues_count, prevScore?.issues_count, "", false)}
-          />
-        </section>
+          {show("numbers") && (
+            <div className="stats" id="uptime">
+              <StatCard
+                featured
+                label="Unique visitors"
+                value={traffic ? num(traffic.unique_visitors) : "No data"}
+                delta={
+                  traffic
+                    ? change(
+                        traffic.unique_visitors / traffic.days_reported,
+                        prevTraffic && prevTraffic.unique_visitors / prevTraffic.days_reported,
+                        prevMonth,
+                        { unit: "pct", perDay: true },
+                      )
+                    : { text: "", tone: "neutral" }
+                }
+                href="#traffic-detail"
+              />
+              <StatCard
+                label="Uptime"
+                value={uptime ? `${uptime.uptime_pct}%` : "No data"}
+                delta={uptime ? change(uptime.uptime_pct, prevUptime?.uptime_pct, prevMonth, { unit: "pts" }) : { text: "", tone: "neutral" }}
+                href="#uptime"
+              />
+              <StatCard
+                label="Response time"
+                sublabel="at monthly check"
+                value={`${num(score.response_ms)} ms`}
+                delta={change(score.response_ms, prevScore?.response_ms, prevMonth, { unit: "ms", lowerIsBetter: true })}
+                href="#health-detail"
+              />
+              <StatCard
+                label="Open issues"
+                value={num(score.issues_count)}
+                delta={change(score.issues_count, prevScore?.issues_count, prevMonth, { unit: "count", lowerIsBetter: true })}
+                href="#plan"
+              />
+            </div>
+          )}
 
-        <div className="grid-2">
-          <section className="card" aria-labelledby="cat-title">
-            <h2 id="cat-title">Score by category</h2>
-            <CategoryBars
-              items={[
-                { label: "Search (SEO)", value: score.seo },
-                { label: "Performance", value: score.performance },
-                { label: "Accessibility", value: score.accessibility },
-                { label: "Best practices", value: score.best_practices },
-                { label: "Security", value: score.security },
-              ]}
-            />
-            <p className="card-note bars-note">
-              The overall score combines these five categories. Each comes from automated checks run at the start of
-              the month; the action plan below lists what would raise them most.
+          {show("health") && (
+            <div className="two-col wide-left" id="health-detail">
+              <Card title="Overall health, last 12 months" action={<ViewLink href="#health" label="View health" />}>
+                <TrendChart title="Overall health score by month" points={view.scoreTrend} domain={[0, 100]} />
+              </Card>
+              <Card title="Score by category">
+                <CategoryBars
+                  items={[
+                    { label: "Search basics", value: score.seo },
+                    { label: "Speed", value: score.performance },
+                    { label: "Accessibility", value: score.accessibility },
+                    { label: "Best practices", value: score.best_practices },
+                    { label: "Security", value: score.security },
+                  ]}
+                />
+              </Card>
+            </div>
+          )}
+
+          {show("plan") && (
+            <Card id="plan-top" title="Top of the plan" action={<ViewLink href="#plan" label="See the whole plan" />}>
+              <PlanSummary items={view.plan.slice(0, 3)} />
+            </Card>
+          )}
+
+          {show("numbers", "work") && (
+            <div className={tab === "work" ? "" : "two-col"} id="traffic-detail">
+              {show("numbers") && (
+                <Card id="search" title="Search positions">
+                  <KeywordTable latest={view.ranks} previous={view.prevRanks} />
+                </Card>
+              )}
+              <Card id="work" title="Work log">
+                <WorkLog items={view.work} />
+              </Card>
+            </div>
+          )}
+
+          {show("plan") && (
+            <Card id="plan" title="The whole plan">
+              <PlanDetail items={view.plan} />
+            </Card>
+          )}
+
+          <footer className="footer">
+            <p>
+              Scores are point-in-time measurements from automated checks. They help find and fix problems, but they are
+              not a guarantee of security, accessibility, or search rankings. Demo build: Lakeshore Coffee Roasters is not a
+              real business.
             </p>
-          </section>
-          <section className="card" aria-labelledby="trend-title">
-            <h2 id="trend-title">Trends</h2>
-            <TrendChart title="Overall health score" points={view.scoreTrend} domain={[0, 100]} />
-            <TrendChart title="Average visits per day" points={view.trafficTrend} />
-          </section>
-        </div>
-
-        <section className="card" aria-labelledby="plan-title">
-          <div className="card-head">
-            <h2 id="plan-title">Action plan</h2>
-            <p className="card-note">From the latest audit, in plain English. Fixes first, then opportunities.</p>
-          </div>
-          <ActionPlan items={view.plan} />
-        </section>
-
-        <div className="grid-2">
-          <section className="card" aria-labelledby="kw-title">
-            <h2 id="kw-title">Search positions</h2>
-            <KeywordTable latest={view.ranks} previous={view.prevRanks} />
-          </section>
-          <section className="card" aria-labelledby="work-title">
-            <h2 id="work-title">Work done this month</h2>
-            <WorkLog items={view.work} />
-          </section>
-        </div>
-      </main>
-
-      <footer className="footer">
-        <p>
-          Demo build with invented data. "Lakeshore Coffee Roasters" is not a real business. Scores are
-          estimates from automated checks, not a certification.
-        </p>
-      </footer>
+          </footer>
+        </main>
+      </div>
     </div>
   )
 }

@@ -16,7 +16,7 @@ Small-business owners pay for website care but rarely see what it does. Typical 
 - **Change, not just status.** Every metric says how it moved since last month, in words as well as color.
 - **An action plan in plain English.** Each item says what to do, why it matters to the business, and what the audit found. Items are grouped into three outcomes clients care about: getting found, speed, and trust.
 - **Proof of work.** A dated log of what the studio did that month.
-- **Accessible by default.** Charts have screen-reader data tables, color is never the only signal, there is a skip link, light and dark themes, reduced-motion support, and contrast checked against WCAG 2.1 AA.
+- **Accessible by default.** Every chart has a "Show as a table" view, color is never the only signal, there is a skip link, light and dark themes, reduced-motion support, and contrast checked against WCAG 2.1 AA.
 
 ## Product decisions
 
@@ -26,7 +26,7 @@ Small-business owners pay for website care but rarely see what it does. Typical 
 | **No lead or conversion data** on the dashboard | It invites the wrong conversation about attribution. The dashboard's job is site health and visibility. |
 | **Read-only for clients** | Clients view reports; all writes come from the back-office audit job. Fewer moving parts and nothing for a client to break. |
 | **Fail loudly** on data errors | An empty result must never render as a normal-looking report that says "no issues." |
-| **Demo mode with fictional data** | Prospects can explore a full report before signing, with zero network requests and no real client data. |
+| **Demo mode with fictional data** | Prospects can explore a full report before signing. The demo sends no data requests and holds no real client data. |
 
 ## Architecture
 
@@ -39,7 +39,7 @@ flowchart LR
   API -- publishable key +<br/>user token, read only --> B[Client dashboard<br/>React]
 ```
 
-- **Front end:** React and TypeScript, built with Vite. No UI or chart libraries; charts are hand-written SVG.
+- **Front end:** React and TypeScript, built with Vite. No UI or chart libraries; charts and icons are hand-written SVG. Dark mode by default, with a light theme.
 - **Data:** Postgres (Supabase). Daily rows roll up into monthly views. See [`db/schema.sql`](db/schema.sql).
 - **Security:** Each login is a member of one client. Row level security policies check membership on every table and view, so the browser can only ever read its own client's rows. Staff accounts can see all clients. There are no write policies for browsers at all.
 - **Data access:** Plain `fetch` calls to the REST API (no SDK). See [`src/data/source.ts`](src/data/source.ts).
