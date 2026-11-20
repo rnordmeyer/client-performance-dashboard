@@ -1,8 +1,6 @@
-# Client Performance Dashboard
+# Client Reports Dashboard
 
-A monthly website report that small-business clients can actually read: one health score, the numbers that matter, a plain-English action plan, and a log of the work done for them.
-
-I designed and built the production version of this for the clients of my web studio. This repository is a standalone rebuild for portfolio review. **It runs entirely on invented demo data** and does not connect to the production system.
+The monthly website report I designed and built for the clients of my web studio, [Nordmeyer Creative](https://nordmeyercreative.com). This is the **production code** behind the public demo, running here on invented data for a fictional business, "Harbor & Pine Bakery."
 
 **[Open the live demo](https://rnordmeyer.github.io/client-performance-dashboard/)**
 
@@ -12,39 +10,23 @@ I designed and built the production version of this for the clients of my web st
 
 Small-business owners pay for website care but rarely see what it does. Typical SEO and analytics reports are long PDFs full of jargon that go unread, and the client is left asking, "Is my website OK?"
 
-## What I built
+## What it does
 
-- **One headline number.** An overall health score (0 to 100) with a letter grade, broken down into search, performance, accessibility, best practices and security.
-- **Change, not just status.** Every metric says how it moved since last month, in words as well as color.
-- **An action plan in plain English.** Each item says what to do, why it matters to the business, and what the audit found. Items are grouped into three outcomes clients care about: getting found, speed, and trust.
-- **Proof of work.** A dated log of what the studio did that month.
-- **Accessible by default.** Every chart has a "Show as a table" view, color is never the only signal, there is a skip link, light and dark themes, reduced-motion support, and contrast checked against WCAG 2.1 AA.
+- **One health score** (0 to 100, with a grade) that combines search basics, speed, accessibility, best practices, on-page setup and security.
+- **Every number shows its change** from last month, in words and with an arrow, never color alone. A month in progress is compared as a daily average.
+- **Sections for each concern:** health, traffic, search positions across four engines, AI search visibility, uptime from 5-minute checks, a work log, and a plain-English plan of what to fix next.
+- **Notices** for what matters this month, such as an outage or a search that reached page one.
+- **Monthly PDF** of any month, generated in the browser.
+- **Plan-aware:** each client sees the sections their plan includes. Staff can preview any plan.
+- **Guided tour** from Nordy, the studio's assistant, for first-time visitors.
+- **Accessible:** WCAG 2.1 AA contrast in light and dark themes, full keyboard support, a table view for every chart, reduced-motion support.
 
-## Product decisions
+## How it is built
 
-| Decision | Why |
-|---|---|
-| Show **visits per day**, not visits per month | A month in progress was being compared with a full month, so traffic always looked like it was falling. Daily averages compare fairly. |
-| **No lead or conversion data** on the dashboard | It invites the wrong conversation about attribution. The dashboard's job is site health and visibility. |
-| **Read-only for clients** | Clients view reports; all writes come from the back-office audit job. Fewer moving parts and nothing for a client to break. |
-| **Fail loudly** on data errors | An empty result must never render as a normal-looking report that says "no issues." |
-| **Demo mode with fictional data** | Prospects can explore a full report before signing. The demo sends no data requests and holds no real client data. |
-
-## Architecture
-
-```mermaid
-flowchart LR
-  A[Monthly audit job<br/>back office] -- service role key --> DB[(Postgres<br/>row level security)]
-  U[Uptime monitor<br/>every 5 min] --> DB
-  T[Analytics import] --> DB
-  DB -- monthly views --> API[REST API]
-  API -- publishable key +<br/>user token, read only --> B[Client dashboard<br/>React]
-```
-
-- **Front end:** React and TypeScript, built with Vite. No UI or chart libraries; charts and icons are hand-written SVG. Dark mode by default, with a light theme.
-- **Data:** Postgres (Supabase). Daily rows roll up into monthly views. See [`db/schema.sql`](db/schema.sql).
-- **Security:** Each login is a member of one client. Row level security policies check membership on every table and view, so the browser can only ever read its own client's rows. Staff accounts can see all clients. There are no write policies for browsers at all.
-- **Data access:** Plain `fetch` calls to the REST API (no SDK). See [`src/data/source.ts`](src/data/source.ts).
+- **React and TypeScript**, written as Framer code components and run here in a plain Vite app. A small shim (`src/shims/framer.ts`) stands in for the Framer runtime.
+- **Data:** Postgres on Supabase, read with plain `fetch` calls. Clients only ever hold a publishable key and their own session; row level security decides which client's rows each login can read, and the browser has no write access. [`db/schema.sql`](db/schema.sql) is a simplified version of the core schema.
+- **Demo mode** builds all sample data in the browser and sends no data requests.
+- No UI or chart libraries: charts, icons and the score ring are hand-written SVG. `framer-motion` handles transitions; `jsPDF` is loaded only when a PDF is requested.
 
 ## Run it
 
@@ -53,24 +35,10 @@ npm install
 npm run dev
 ```
 
-Open the local address it prints. It starts in demo mode; no account or configuration is needed.
-
-## Project layout
-
-```
-src/
-  App.tsx              page layout and month navigation
-  components/          score ring, trend chart, plan, keyword table, work log
-  data/demo.ts         invented demo data (deterministic, dated relative to today)
-  data/source.ts       demo and live data sources
-  data/types.ts        row types matching the database views
-db/schema.sql          tables, row level security policies and monthly views
-```
-
 ## What is not here
 
-The production audit engine, its scoring method, and all client data stay private. The overall score in this demo is a simple average of the five categories.
+The audit engine that produces the scores, the lead-management desk, lead capture, and all client data are private. The lead desk and lead capture are replaced with empty stubs, and code comments were removed for publication.
 
 ---
 
-© 2026 Ryan Nordmeyer. Shared for portfolio review.
+© 2026 Ryan Nordmeyer. Shared for portfolio review; not licensed for reuse.
