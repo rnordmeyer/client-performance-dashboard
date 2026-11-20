@@ -4,6 +4,8 @@ A monthly website report that small-business clients can actually read: one heal
 
 I designed and built the production version of this for the clients of my web studio. This repository is a standalone rebuild for portfolio review. **It runs entirely on invented demo data** and does not connect to the production system.
 
+**[Open the live demo](https://rnordmeyer.github.io/client-performance-dashboard/)**
+
 ![Dashboard screenshot](docs/screenshot.png)
 
 ## The problem
